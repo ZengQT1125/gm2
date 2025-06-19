@@ -13,22 +13,29 @@ HF_TOKEN = "your_hf_token_here"  # 替换为你的 HF Token
 # 或者使用自定义 API Key
 # API_KEY = "your_api_key_here"
 
-def chat_with_gemini(message: str, token: str) -> str:
+def chat_with_gemini(message: str, token: str, use_x_api_key: bool = True) -> str:
     """
     与 Gemini 聊天
-    
+
     Args:
         message: 要发送的消息
         token: 认证令牌 (HF_TOKEN 或 API_KEY)
-    
+        use_x_api_key: 是否使用 X-API-Key 头（推荐用于 Hugging Face Spaces）
+
     Returns:
         Gemini 的回复
     """
-    
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
+
+    if use_x_api_key:
+        headers = {
+            "X-API-Key": token,
+            "Content-Type": "application/json"
+        }
+    else:
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
     
     data = {
         "model": "gemini-2.0-flash",
@@ -59,19 +66,26 @@ def chat_with_gemini(message: str, token: str) -> str:
     except Exception as e:
         return f"Exception: {str(e)}"
 
-def stream_chat_with_gemini(message: str, token: str):
+def stream_chat_with_gemini(message: str, token: str, use_x_api_key: bool = True):
     """
     流式聊天示例
-    
+
     Args:
         message: 要发送的消息
         token: 认证令牌
+        use_x_api_key: 是否使用 X-API-Key 头
     """
-    
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
+
+    if use_x_api_key:
+        headers = {
+            "X-API-Key": token,
+            "Content-Type": "application/json"
+        }
+    else:
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
     
     data = {
         "model": "gemini-2.0-flash",
@@ -118,21 +132,28 @@ def stream_chat_with_gemini(message: str, token: str):
     except Exception as e:
         print(f"Exception: {str(e)}")
 
-def get_available_models(token: str) -> list:
+def get_available_models(token: str, use_x_api_key: bool = True) -> list:
     """
     获取可用模型列表
-    
+
     Args:
         token: 认证令牌
-    
+        use_x_api_key: 是否使用 X-API-Key 头
+
     Returns:
         模型列表
     """
-    
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
+
+    if use_x_api_key:
+        headers = {
+            "X-API-Key": token,
+            "Content-Type": "application/json"
+        }
+    else:
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
     
     try:
         response = requests.get(

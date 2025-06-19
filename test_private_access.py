@@ -33,22 +33,41 @@ def test_api_access(
     
     # 测试模型列表端点（需要认证）
     print(f"\n🔍 Testing models endpoint with {token_type}...")
-    headers = {
+
+    # 支持两种认证方式
+    headers_auth = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
+
+    headers_x_api = {
+        "X-API-Key": token,
+        "Content-Type": "application/json"
+    }
     
+    # 首先尝试 X-API-Key 方式（Hugging Face Spaces 推荐）
     try:
-        response = requests.get(f"{base_url}/v1/models", headers=headers)
+        print(f"   🔑 Trying X-API-Key authentication...")
+        response = requests.get(f"{base_url}/v1/models", headers=headers_x_api)
         if response.status_code == 200:
             models = response.json()
-            print(f"✅ Models endpoint: {response.status_code}")
+            print(f"✅ Models endpoint (X-API-Key): {response.status_code}")
             print(f"📋 Available models: {len(models.get('data', []))} models")
             for model in models.get('data', [])[:3]:  # 显示前3个模型
                 print(f"   - {model.get('id', 'Unknown')}")
         else:
-            print(f"❌ Models endpoint failed: {response.status_code} - {response.text}")
-            return
+            print(f"⚠️  X-API-Key failed: {response.status_code}, trying Authorization header...")
+            # 尝试传统的 Authorization 方式
+            response = requests.get(f"{base_url}/v1/models", headers=headers_auth)
+            if response.status_code == 200:
+                models = response.json()
+                print(f"✅ Models endpoint (Authorization): {response.status_code}")
+                print(f"📋 Available models: {len(models.get('data', []))} models")
+                for model in models.get('data', [])[:3]:
+                    print(f"   - {model.get('id', 'Unknown')}")
+            else:
+                print(f"❌ Both authentication methods failed: {response.status_code} - {response.text}")
+                return
     except Exception as e:
         print(f"❌ Models endpoint failed: {e}")
         return
@@ -67,17 +86,19 @@ def test_api_access(
         "temperature": 0.7
     }
     
+    # 首先尝试 X-API-Key 方式
     try:
+        print(f"   🔑 Trying X-API-Key authentication for chat...")
         response = requests.post(
             f"{base_url}/v1/chat/completions",
-            headers=headers,
+            headers=headers_x_api,
             json=chat_data,
             timeout=30
         )
-        
+
         if response.status_code == 200:
             result = response.json()
-            print(f"✅ Chat completion: {response.status_code}")
+            print(f"✅ Chat completion (X-API-Key): {response.status_code}")
             if 'choices' in result and len(result['choices']) > 0:
                 content = result['choices'][0]['message']['content']
                 print(f"🤖 Response: {content[:100]}...")
@@ -85,7 +106,26 @@ def test_api_access(
             else:
                 print(f"⚠️  Unexpected response format: {result}")
         else:
-            print(f"❌ Chat completion failed: {response.status_code} - {response.text}")
+            print(f"⚠️  X-API-Key failed for chat: {response.status_code}, trying Authorization header...")
+            # 尝试传统的 Authorization 方式
+            response = requests.post(
+                f"{base_url}/v1/chat/completions",
+                headers=headers_auth,
+                json=chat_data,
+                timeout=30
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                print(f"✅ Chat completion (Authorization): {response.status_code}")
+                if 'choices' in result and len(result['choices']) > 0:
+                    content = result['choices'][0]['message']['content']
+                    print(f"🤖 Response: {content[:100]}...")
+                    print(f"📊 Usage: {result.get('usage', {})}")
+                else:
+                    print(f"⚠️  Unexpected response format: {result}")
+            else:
+                print(f"❌ Both authentication methods failed for chat: {response.status_code} - {response.text}")
     except Exception as e:
         print(f"❌ Chat completion failed: {e}")
 

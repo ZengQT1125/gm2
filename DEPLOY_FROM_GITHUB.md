@@ -51,11 +51,14 @@ SECURE_1PSID=你的__Secure-1PSID值
 SECURE_1PSIDTS=你的__Secure-1PSIDTS值
 ```
 
-#### 认证变量（推荐设置其中一个）：
+#### 认证变量（推荐使用 HF_TOKEN）：
 ```
-HF_TOKEN=你的Hugging Face访问令牌
-# 或者
-API_KEY=你自定义的API密钥
+HF_TOKEN=你的Hugging Face访问令牌  # 推荐
+```
+
+#### 可选的传统认证方式：
+```
+API_KEY=你自定义的API密钥  # 仍然支持，但不推荐
 ```
 
 ### 5. 获取必要的令牌
@@ -81,8 +84,17 @@ API_KEY=你自定义的API密钥
    ```bash
    # 健康检查
    curl https://你的用户名-你的空间名.hf.space/
-   
-   # 测试 API（需要认证）
+
+   # 测试 API（推荐使用 X-API-Key）
+   curl -X POST "https://你的用户名-你的空间名.hf.space/v1/chat/completions" \
+     -H "Content-Type: application/json" \
+     -H "X-API-Key: 你的HF_TOKEN" \
+     -d '{
+       "model": "gemini-2.0-flash",
+       "messages": [{"role": "user", "content": "Hello!"}]
+     }'
+
+   # 或者使用传统方式（仍然支持）
    curl -X POST "https://你的用户名-你的空间名.hf.space/v1/chat/completions" \
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer 你的HF_TOKEN" \

@@ -107,8 +107,24 @@ docker-compose up -d --build
 ## API端点
 
 - `GET /`: 服务状态检查
-- `GET /v1/models`: 获取可用模型列表
-- `POST /v1/chat/completions`: 与模型聊天 (类似OpenAI接口)
+- `GET /v1/models`: 获取可用模型列表（需要认证）
+- `POST /v1/chat/completions`: 与模型聊天 (类似OpenAI接口，需要认证)
+
+## 认证方式
+
+支持两种认证方式：
+
+### 推荐方式（X-API-Key）：
+```bash
+curl -H "X-API-Key: your_hf_token" https://your-space.hf.space/v1/models
+```
+
+### 传统方式（Authorization）：
+```bash
+curl -H "Authorization: Bearer your_hf_token" https://your-space.hf.space/v1/models
+```
+
+详细说明请参考：[认证方式更新说明](./AUTHENTICATION_UPDATE.md)
 
 ## 常见问题
 

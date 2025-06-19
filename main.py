@@ -156,32 +156,61 @@ class ModelList(BaseModel):
 	data: List[ModelData]
 
 
-# Authentication dependency
-async def verify_api_key(authorization: str = Header(None)):
+# Authentication dependency - Updated for Hugging Face Spaces
+async def verify_api_key(
+	authorization: str = Header(None),
+	x_api_key: str = Header(None, alias="X-API-Key")
+):
+	"""
+	验证 API 密钥，支持多种认证方式：
+	1. Authorization: Bearer TOKEN (传统方式)
+	2. X-API-Key: TOKEN (Hugging Face Spaces 推荐方式)
+	"""
+
+	# 如果没有设置任何认证令牌，跳过验证（开发模式）
 	if not API_KEY and not HF_TOKEN:
-		# If neither API_KEY nor HF_TOKEN is set, skip validation (for development)
 		logger.warning("API key validation skipped - no API_KEY or HF_TOKEN set in environment")
 		return
 
-	if not authorization:
-		raise HTTPException(status_code=401, detail="Missing Authorization header")
-
-	try:
-		scheme, token = authorization.split()
-		if scheme.lower() != "bearer":
-			raise HTTPException(status_code=401, detail="Invalid authentication scheme. Use Bearer token")
-
-		# Check against API_KEY first, then HF_TOKEN
-		if API_KEY and token == API_KEY:
-			return token
-		elif HF_TOKEN and token == HF_TOKEN:
-			return token
+	# 优先检查 X-API-Key 头（Hugging Face Spaces 推荐）
+	if x_api_key:
+		logger.info("Authenticating using X-API-Key header")
+		if API_KEY and x_api_key == API_KEY:
+			logger.info("Successfully authenticated using X-API-Key with API_KEY")
+			return x_api_key
+		elif HF_TOKEN and x_api_key == HF_TOKEN:
+			logger.info("Successfully authenticated using X-API-Key with HF_TOKEN")
+			return x_api_key
 		else:
-			raise HTTPException(status_code=401, detail="Invalid API key or HF token")
-	except ValueError:
-		raise HTTPException(status_code=401, detail="Invalid authorization format. Use 'Bearer YOUR_API_KEY_OR_HF_TOKEN'")
+			logger.warning("Invalid API key received in X-API-Key header")
+			raise HTTPException(status_code=401, detail="Invalid API key in X-API-Key header")
 
-	return token
+	# 回退到传统的 Authorization 头
+	if authorization:
+		logger.info("Authenticating using Authorization header")
+		try:
+			scheme, token = authorization.split()
+			if scheme.lower() != "bearer":
+				raise HTTPException(status_code=401, detail="Invalid authentication scheme. Use Bearer token")
+
+			# Check against API_KEY first, then HF_TOKEN
+			if API_KEY and token == API_KEY:
+				logger.info("Successfully authenticated using Authorization header with API_KEY")
+				return token
+			elif HF_TOKEN and token == HF_TOKEN:
+				logger.info("Successfully authenticated using Authorization header with HF_TOKEN")
+				return token
+			else:
+				logger.warning("Invalid token in Authorization header")
+				raise HTTPException(status_code=401, detail="Invalid API key or HF token")
+		except ValueError:
+			raise HTTPException(status_code=401, detail="Invalid authorization format. Use 'Bearer YOUR_TOKEN'")
+
+	# 如果两种头都没有提供
+	raise HTTPException(
+		status_code=401,
+		detail="Missing authentication. Provide either 'Authorization: Bearer TOKEN' or 'X-API-Key: TOKEN' header"
+	)
 
 
 # Simple error handler middleware
