@@ -481,41 +481,39 @@ async def create_chat_completion(request: ChatCompletionRequest, api_key: str = 
 			async def generate_stream():
 				# 创建 SSE 格式的流式响应
 				# 先发送开始事件
-				data = {
+				start_data = {
 					"id": completion_id,
 					"object": "chat.completion.chunk",
 					"created": created_time,
 					"model": request.model,
 					"choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
 				}
-				yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+				yield f"data: {json.dumps(start_data, ensure_ascii=False)}\n\n"
 
 				# 按词分割发送，而不是按字符（更自然的流式体验）
 				words = reply_text.split()
-				current_content = ""
 
 				for word in words:
-					current_content += word + " "
-					data = {
+					chunk_data = {
 						"id": completion_id,
 						"object": "chat.completion.chunk",
 						"created": created_time,
 						"model": request.model,
 						"choices": [{"index": 0, "delta": {"content": word + " "}, "finish_reason": None}],
 					}
-					yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+					yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
 					# 短暂延迟以模拟真实的流式输出
-					await asyncio.sleep(0.05)
+					await asyncio.sleep(0.03)
 
 				# 发送结束事件
-				data = {
+				end_data = {
 					"id": completion_id,
 					"object": "chat.completion.chunk",
 					"created": created_time,
 					"model": request.model,
 					"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
 				}
-				yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+				yield f"data: {json.dumps(end_data, ensure_ascii=False)}\n\n"
 				yield "data: [DONE]\n\n"
 
 			return StreamingResponse(
@@ -526,6 +524,7 @@ async def create_chat_completion(request: ChatCompletionRequest, api_key: str = 
 					"Connection": "keep-alive",
 					"Access-Control-Allow-Origin": "*",
 					"Access-Control-Allow-Headers": "*",
+					"X-Accel-Buffering": "no",  # 禁用 Nginx 缓冲
 				}
 			)
 		else:
@@ -543,7 +542,7 @@ async def create_chat_completion(request: ChatCompletionRequest, api_key: str = 
 				},
 			}
 
-			logger.info(f"Returning response: {result}")
+			logger.info(f"Returning non-streaming response with {len(reply_text)} characters")
 			return result
 
 	except Exception as e:
