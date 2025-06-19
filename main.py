@@ -479,42 +479,68 @@ async def create_chat_completion(request: ChatCompletionRequest, api_key: str = 
 		if request.stream:
 			# 实现流式响应
 			async def generate_stream():
-				# 创建 SSE 格式的流式响应
-				# 先发送开始事件
-				start_data = {
-					"id": completion_id,
-					"object": "chat.completion.chunk",
-					"created": created_time,
-					"model": request.model,
-					"choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
-				}
-				yield f"data: {json.dumps(start_data, ensure_ascii=False)}\n\n"
-
-				# 按词分割发送，而不是按字符（更自然的流式体验）
-				words = reply_text.split()
-
-				for word in words:
-					chunk_data = {
+				try:
+					# 先发送角色信息
+					start_chunk = {
 						"id": completion_id,
 						"object": "chat.completion.chunk",
 						"created": created_time,
 						"model": request.model,
-						"choices": [{"index": 0, "delta": {"content": word + " "}, "finish_reason": None}],
+						"choices": [{
+							"index": 0,
+							"delta": {"role": "assistant"},
+							"finish_reason": None
+						}]
 					}
-					yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
-					# 短暂延迟以模拟真实的流式输出
-					await asyncio.sleep(0.03)
+					yield f"data: {json.dumps(start_chunk)}\n\n"
 
-				# 发送结束事件
-				end_data = {
-					"id": completion_id,
-					"object": "chat.completion.chunk",
-					"created": created_time,
-					"model": request.model,
-					"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-				}
-				yield f"data: {json.dumps(end_data, ensure_ascii=False)}\n\n"
-				yield "data: [DONE]\n\n"
+					# 按词分割发送内容
+					words = reply_text.split()
+					for i, word in enumerate(words):
+						content_chunk = {
+							"id": completion_id,
+							"object": "chat.completion.chunk",
+							"created": created_time,
+							"model": request.model,
+							"choices": [{
+								"index": 0,
+								"delta": {"content": word + (" " if i < len(words) - 1 else "")},
+								"finish_reason": None
+							}]
+						}
+						yield f"data: {json.dumps(content_chunk)}\n\n"
+						await asyncio.sleep(0.02)
+
+					# 发送结束标记
+					end_chunk = {
+						"id": completion_id,
+						"object": "chat.completion.chunk",
+						"created": created_time,
+						"model": request.model,
+						"choices": [{
+							"index": 0,
+							"delta": {},
+							"finish_reason": "stop"
+						}]
+					}
+					yield f"data: {json.dumps(end_chunk)}\n\n"
+					yield "data: [DONE]\n\n"
+
+				except Exception as e:
+					logger.error(f"Error in streaming response: {str(e)}")
+					error_chunk = {
+						"id": completion_id,
+						"object": "chat.completion.chunk",
+						"created": created_time,
+						"model": request.model,
+						"choices": [{
+							"index": 0,
+							"delta": {"content": f"Error: {str(e)}"},
+							"finish_reason": "stop"
+						}]
+					}
+					yield f"data: {json.dumps(error_chunk)}\n\n"
+					yield "data: [DONE]\n\n"
 
 			return StreamingResponse(
 				generate_stream(),
@@ -524,7 +550,7 @@ async def create_chat_completion(request: ChatCompletionRequest, api_key: str = 
 					"Connection": "keep-alive",
 					"Access-Control-Allow-Origin": "*",
 					"Access-Control-Allow-Headers": "*",
-					"X-Accel-Buffering": "no",  # 禁用 Nginx 缓冲
+					"X-Accel-Buffering": "no",
 				}
 			)
 		else:
