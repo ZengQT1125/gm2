@@ -9,6 +9,7 @@ dependencies = [
     "fastapi>=0.115.12",
     "gemini-webapi>=1.12.1",
     "uvicorn[standard]>=0.34.1",
+    "requests>=2.31.0",
 ]
 
 [dependency-groups]

@@ -307,16 +307,65 @@ def prepare_conversation(messages: List[Message]) -> tuple:
 					if image_url.startswith("data:image/"):
 						# Process base64 encoded image
 						try:
-							# Extract the base64 part
-							base64_data = image_url.split(",")[1]
+							# Extract the base64 part and mime type
+							header, base64_data = image_url.split(",", 1)
+							mime_type = header.split(":")[1].split(";")[0]
+
+							# Determine file extension
+							if "jpeg" in mime_type or "jpg" in mime_type:
+								ext = ".jpg"
+							elif "png" in mime_type:
+								ext = ".png"
+							elif "gif" in mime_type:
+								ext = ".gif"
+							elif "webp" in mime_type:
+								ext = ".webp"
+							else:
+								ext = ".png"  # Default to PNG
+
 							image_data = base64.b64decode(base64_data)
 
 							# Create temporary file to hold the image
-							with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+							with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
 								tmp.write(image_data)
 								temp_files.append(tmp.name)
+								logger.info(f"Created temporary image file: {tmp.name} (size: {len(image_data)} bytes)")
 						except Exception as e:
 							logger.error(f"Error processing base64 image: {str(e)}")
+							# Add text description of the failed image
+							conversation += "[Image processing failed] "
+					elif image_url.startswith("http"):
+						# Handle URL images (download and save)
+						try:
+							import requests
+							response = requests.get(image_url, timeout=10)
+							if response.status_code == 200:
+								# Determine file extension from content type or URL
+								content_type = response.headers.get('content-type', '')
+								if "jpeg" in content_type or "jpg" in content_type:
+									ext = ".jpg"
+								elif "png" in content_type:
+									ext = ".png"
+								elif "gif" in content_type:
+									ext = ".gif"
+								elif "webp" in content_type:
+									ext = ".webp"
+								else:
+									ext = ".png"
+
+								with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+									tmp.write(response.content)
+									temp_files.append(tmp.name)
+									logger.info(f"Downloaded and saved image: {tmp.name} (size: {len(response.content)} bytes)")
+							else:
+								logger.error(f"Failed to download image from {image_url}: HTTP {response.status_code}")
+								conversation += "[Image download failed] "
+						except Exception as e:
+							logger.error(f"Error downloading image from {image_url}: {str(e)}")
+							conversation += "[Image download failed] "
+					else:
+						logger.warning(f"Unsupported image URL format: {image_url}")
+						conversation += "[Unsupported image format] "
 
 			conversation += "\n\n"
 
@@ -360,11 +409,28 @@ async def create_chat_completion(request: ChatCompletionRequest, api_key: str = 
 
 		# 生成响应
 		logger.info("Sending request to Gemini...")
+		logger.info(f"Number of image files: {len(temp_files)}")
+
 		if temp_files:
-			# With files
-			response = await gemini_client.generate_content(conversation, files=temp_files, model=model)
+			# With files - 确保文件存在且可读
+			valid_files = []
+			for file_path in temp_files:
+				if os.path.exists(file_path):
+					file_size = os.path.getsize(file_path)
+					logger.info(f"Image file: {file_path}, size: {file_size} bytes")
+					valid_files.append(file_path)
+				else:
+					logger.error(f"Image file not found: {file_path}")
+
+			if valid_files:
+				logger.info(f"Sending {len(valid_files)} image(s) to Gemini")
+				response = await gemini_client.generate_content(conversation, files=valid_files, model=model)
+			else:
+				logger.warning("No valid image files found, sending text only")
+				response = await gemini_client.generate_content(conversation, model=model)
 		else:
 			# Text only
+			logger.info("Sending text-only request to Gemini")
 			response = await gemini_client.generate_content(conversation, model=model)
 
 		# 清理临时文件
