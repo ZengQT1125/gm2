@@ -10,7 +10,7 @@ import os
 
 # 配置
 SPACE_URL = "https://zqt25-gmn2a.hf.space"  # 你的空间URL
-HF_TOKEN = "your_hf_token_here"  # 替换为你的 HF Token
+HF_TOKEN = "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"  # 替换为你的 HF Token
 
 # 创建一个简单的测试图片（1x1 像素的红色 PNG）
 def create_test_image() -> str:
