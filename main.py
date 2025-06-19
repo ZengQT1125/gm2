@@ -7,10 +7,11 @@ import re
 import tempfile
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, Depends, Header
+from fastapi import FastAPI, HTTPException, Request, Depends, Header, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any, Union
 import time
@@ -35,6 +36,12 @@ app.add_middleware(
 	allow_methods=["*"],
 	allow_headers=["*"],
 )
+
+# Mount static files
+try:
+	app.mount("/static", StaticFiles(directory="static"), name="static")
+except Exception as e:
+	logger.warning(f"Could not mount static files: {e}")
 
 # Global client
 gemini_client = None
@@ -536,9 +543,170 @@ async def create_chat_completion(request: ChatCompletionRequest, api_key: str = 
 		raise HTTPException(status_code=500, detail=f"Error generating completion: {str(e)}")
 
 
+@app.post("/v1/chat/completions/upload")
+async def create_chat_completion_with_upload(
+	message: str = Form(...),
+	model: str = Form(default="gemini-2.0-flash"),
+	temperature: float = Form(default=0.7),
+	max_tokens: int = Form(default=1000),
+	files: List[UploadFile] = File(default=[]),
+	api_key: str = Depends(verify_api_key)
+):
+	"""
+	支持文件上传的聊天完成端点
+	可以直接上传图片文件（PNG、JPG、GIF、WebP等）
+	"""
+	try:
+		# 确保客户端已初始化
+		global gemini_client
+		if gemini_client is None:
+			gemini_client = GeminiClient(SECURE_1PSID, SECURE_1PSIDTS)
+			await gemini_client.init(timeout=300)
+			logger.info("Gemini client initialized successfully")
+
+		# 处理上传的文件
+		temp_files = []
+		content_items = [{"type": "text", "text": message}]
+
+		for uploaded_file in files:
+			if uploaded_file.filename:
+				logger.info(f"Processing uploaded file: {uploaded_file.filename}")
+
+				# 检查文件类型
+				content_type = uploaded_file.content_type or ""
+				if not content_type.startswith("image/"):
+					logger.warning(f"Skipping non-image file: {uploaded_file.filename}")
+					continue
+
+				# 读取文件内容
+				file_content = await uploaded_file.read()
+				logger.info(f"Read {len(file_content)} bytes from {uploaded_file.filename}")
+
+				# 确定文件扩展名
+				filename = uploaded_file.filename.lower()
+				if filename.endswith(('.jpg', '.jpeg')):
+					ext = '.jpg'
+				elif filename.endswith('.png'):
+					ext = '.png'
+				elif filename.endswith('.gif'):
+					ext = '.gif'
+				elif filename.endswith('.webp'):
+					ext = '.webp'
+				else:
+					ext = '.png'  # 默认
+
+				# 创建临时文件
+				with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+					tmp.write(file_content)
+					temp_files.append(Path(tmp.name))
+					logger.info(f"Saved uploaded file to: {tmp.name}")
+
+				# 同时创建 base64 版本用于 content
+				base64_data = base64.b64encode(file_content).decode('utf-8')
+				mime_type = content_type if content_type else f"image/{ext[1:]}"
+				data_url = f"data:{mime_type};base64,{base64_data}"
+
+				content_items.append({
+					"type": "image_url",
+					"image_url": {"url": data_url}
+				})
+
+		# 构建消息
+		messages = [{
+			"role": "user",
+			"content": content_items
+		}]
+
+		# 准备对话
+		conversation, additional_temp_files = prepare_conversation(messages)
+		temp_files.extend([Path(f) for f in additional_temp_files])
+
+		logger.info(f"Prepared conversation with {len(temp_files)} files")
+
+		# 获取模型
+		gemini_model = map_model_name(model)
+		logger.info(f"Using model: {gemini_model}")
+
+		# 生成响应
+		if temp_files:
+			logger.info(f"Sending request with {len(temp_files)} files to Gemini")
+			try:
+				response = await gemini_client.generate_content(conversation, files=temp_files, model=gemini_model)
+			except Exception as e:
+				logger.error(f"Error sending files to Gemini: {str(e)}")
+				logger.info("Falling back to text-only request")
+				response = await gemini_client.generate_content(conversation, model=gemini_model)
+		else:
+			logger.info("Sending text-only request to Gemini")
+			response = await gemini_client.generate_content(conversation, model=gemini_model)
+
+		# 清理临时文件
+		for temp_file in temp_files:
+			try:
+				if temp_file.exists():
+					temp_file.unlink()
+			except Exception as e:
+				logger.warning(f"Failed to delete temp file {temp_file}: {str(e)}")
+
+		# 提取响应文本
+		reply_text = ""
+		if hasattr(response, "thoughts"):
+			reply_text += f"<think>{response.thoughts}</think>"
+		if hasattr(response, "text"):
+			reply_text += response.text
+		else:
+			reply_text += str(response)
+
+		reply_text = reply_text.replace("&lt;","<").replace("\\<","<").replace("\\_","_").replace("\\>",">")
+		reply_text = correct_markdown(reply_text)
+
+		if not reply_text or reply_text.strip() == "":
+			reply_text = "服务器返回了空响应。请检查 Gemini API 凭据是否有效。"
+
+		# 创建响应
+		completion_id = f"chatcmpl-{uuid.uuid4()}"
+		created_time = int(time.time())
+
+		result = {
+			"id": completion_id,
+			"object": "chat.completion",
+			"created": created_time,
+			"model": model,
+			"choices": [{
+				"index": 0,
+				"message": {
+					"role": "assistant",
+					"content": reply_text
+				},
+				"finish_reason": "stop"
+			}],
+			"usage": {
+				"prompt_tokens": len(conversation.split()),
+				"completion_tokens": len(reply_text.split()),
+				"total_tokens": len(conversation.split()) + len(reply_text.split()),
+			},
+		}
+
+		logger.info(f"Upload endpoint returning response for {len(files)} files")
+		return result
+
+	except Exception as e:
+		logger.error(f"Error in upload endpoint: {str(e)}", exc_info=True)
+		raise HTTPException(status_code=500, detail=f"Error processing upload: {str(e)}")
+
+
 @app.get("/")
 async def root():
 	return {"status": "online", "message": "Gemini API FastAPI Server is running"}
+
+
+@app.get("/test")
+async def test_page():
+	"""返回图片上传测试页面"""
+	try:
+		return FileResponse("static/upload_test.html")
+	except Exception as e:
+		return {"error": "Test page not found", "detail": str(e)}
 
 
 if __name__ == "__main__":
