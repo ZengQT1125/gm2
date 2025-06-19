@@ -488,20 +488,24 @@ async def create_chat_completion(request: ChatCompletionRequest, api_key: str = 
 					"model": request.model,
 					"choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
 				}
-				yield f"data: {json.dumps(data)}\n\n"
+				yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
-				# 模拟流式输出 - 将文本按字符分割发送
-				for char in reply_text:
+				# 按词分割发送，而不是按字符（更自然的流式体验）
+				words = reply_text.split()
+				current_content = ""
+
+				for word in words:
+					current_content += word + " "
 					data = {
 						"id": completion_id,
 						"object": "chat.completion.chunk",
 						"created": created_time,
 						"model": request.model,
-						"choices": [{"index": 0, "delta": {"content": char}, "finish_reason": None}],
+						"choices": [{"index": 0, "delta": {"content": word + " "}, "finish_reason": None}],
 					}
-					yield f"data: {json.dumps(data)}\n\n"
-					# 可选：添加短暂延迟以模拟真实的流式输出
-					await asyncio.sleep(0.01)
+					yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+					# 短暂延迟以模拟真实的流式输出
+					await asyncio.sleep(0.05)
 
 				# 发送结束事件
 				data = {
@@ -511,10 +515,19 @@ async def create_chat_completion(request: ChatCompletionRequest, api_key: str = 
 					"model": request.model,
 					"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
 				}
-				yield f"data: {json.dumps(data)}\n\n"
+				yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 				yield "data: [DONE]\n\n"
 
-			return StreamingResponse(generate_stream(), media_type="text/event-stream")
+			return StreamingResponse(
+				generate_stream(),
+				media_type="text/event-stream",
+				headers={
+					"Cache-Control": "no-cache",
+					"Connection": "keep-alive",
+					"Access-Control-Allow-Origin": "*",
+					"Access-Control-Allow-Headers": "*",
+				}
+			)
 		else:
 			# 非流式响应（原来的逻辑）
 			result = {
