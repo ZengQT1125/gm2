@@ -5,6 +5,7 @@ import os
 import base64
 import re
 import tempfile
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -330,6 +331,8 @@ def prepare_conversation(messages: List[Message]) -> tuple:
 								tmp.write(image_data)
 								temp_files.append(tmp.name)
 								logger.info(f"Created temporary image file: {tmp.name} (size: {len(image_data)} bytes)")
+								# 在对话中添加图片引用
+								conversation += f"[Image: {tmp.name}] "
 						except Exception as e:
 							logger.error(f"Error processing base64 image: {str(e)}")
 							# Add text description of the failed image
@@ -357,6 +360,8 @@ def prepare_conversation(messages: List[Message]) -> tuple:
 									tmp.write(response.content)
 									temp_files.append(tmp.name)
 									logger.info(f"Downloaded and saved image: {tmp.name} (size: {len(response.content)} bytes)")
+									# 在对话中添加图片引用
+									conversation += f"[Image from URL: {image_url}] "
 							else:
 								logger.error(f"Failed to download image from {image_url}: HTTP {response.status_code}")
 								conversation += "[Image download failed] "
@@ -412,19 +417,25 @@ async def create_chat_completion(request: ChatCompletionRequest, api_key: str = 
 		logger.info(f"Number of image files: {len(temp_files)}")
 
 		if temp_files:
-			# With files - 确保文件存在且可读
+			# With files - 确保文件存在且可读，并转换为 Path 对象
 			valid_files = []
 			for file_path in temp_files:
 				if os.path.exists(file_path):
 					file_size = os.path.getsize(file_path)
 					logger.info(f"Image file: {file_path}, size: {file_size} bytes")
-					valid_files.append(file_path)
+					# 转换为 Path 对象，这是 gemini-webapi 推荐的方式
+					valid_files.append(Path(file_path))
 				else:
 					logger.error(f"Image file not found: {file_path}")
 
 			if valid_files:
 				logger.info(f"Sending {len(valid_files)} image(s) to Gemini")
-				response = await gemini_client.generate_content(conversation, files=valid_files, model=model)
+				try:
+					response = await gemini_client.generate_content(conversation, files=valid_files, model=model)
+				except Exception as e:
+					logger.error(f"Error sending images to Gemini: {str(e)}")
+					logger.info("Falling back to text-only request")
+					response = await gemini_client.generate_content(conversation, model=model)
 			else:
 				logger.warning("No valid image files found, sending text only")
 				response = await gemini_client.generate_content(conversation, model=model)

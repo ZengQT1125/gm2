@@ -12,6 +12,13 @@ import os
 SPACE_URL = "https://zqt25-gmn2a.hf.space"  # 你的空间URL
 HF_TOKEN = "your_hf_token_here"  # 替换为你的 HF Token
 
+# 创建一个简单的测试图片（1x1 像素的红色 PNG）
+def create_test_image() -> str:
+    """创建一个简单的测试图片并返回 base64 编码"""
+    # 1x1 红色 PNG 图片的 base64 数据
+    red_pixel_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
+    return f"data:image/png;base64,{red_pixel_png}"
+
 def encode_image_to_base64(image_path: str) -> str:
     """
     将本地图片编码为 base64 格式
@@ -40,6 +47,76 @@ def encode_image_to_base64(image_path: str) -> str:
             mime_type = 'image/png'  # 默认
         
         return f"data:{mime_type};base64,{base64_data}"
+
+def test_image_chat_data(image_data_url: str, question: str, token: str) -> str:
+    """
+    测试图片聊天功能（使用已编码的图片数据）
+
+    Args:
+        image_data_url: 已编码的图片数据URL
+        question: 关于图片的问题
+        token: 认证令牌
+
+    Returns:
+        Gemini 的回复
+    """
+
+    # 准备请求数据
+    headers = {
+        "X-API-Key": token,
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "model": "gemini-2.0-flash",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": question
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": image_data_url
+                        }
+                    }
+                ]
+            }
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1000
+    }
+
+    try:
+        print(f"🚀 发送图片分析请求...")
+        response = requests.post(
+            f"{SPACE_URL}/v1/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=60  # 图片处理可能需要更长时间
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            if 'choices' in result and len(result['choices']) > 0:
+                content = result['choices'][0]['message']['content']
+                print(f"✅ 图片分析成功!")
+                print(f"🤖 Gemini 回复: {content}")
+                return content
+            else:
+                print(f"⚠️  响应格式异常: {result}")
+                return None
+        else:
+            print(f"❌ 请求失败: {response.status_code}")
+            print(f"错误信息: {response.text}")
+            return None
+
+    except Exception as e:
+        print(f"❌ 请求异常: {str(e)}")
+        return None
 
 def test_image_chat(image_path: str, question: str, token: str) -> str:
     """
@@ -204,7 +281,16 @@ def main():
     
     print("🖼️  图片支持功能测试")
     print("=" * 50)
-    
+
+    # 首先测试简单的内置图片
+    print("\n🔴 测试内置测试图片...")
+    test_image_data = create_test_image()
+    result = test_image_chat_data(test_image_data, "请描述这张图片，它是什么颜色？", token)
+    if result:
+        print("✅ 内置图片测试成功！")
+    else:
+        print("❌ 内置图片测试失败，可能图片功能有问题")
+
     # 测试本地图片
     print("\n📁 测试本地图片...")
     image_path = input("请输入本地图片路径（或按回车跳过）: ").strip()
